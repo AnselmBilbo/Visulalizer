@@ -1,0 +1,29 @@
+{
+  "projectType": "template",
+  "supportedTargets": ["pc-desktop", "website", "webservice-api", "mobile-app", "cli-tool"],
+  "language": "auto",
+  "installCommand": "",
+  "lintCommand": "",
+  "testCommand": "node .ai-context/lib/self-test.js",
+  "buildCommand": "",
+  "protectedPaths": [
+    ".ai-context/agents",
+    ".ai-context/skills",
+    ".ai-context/mcp",
+    ".ai-context/lib",
+    ".ai-context/core-rules.md",
+    ".forgejo",
+    ".github",
+    ".gitea",
+    ".git",
+    ".gitignore",
+    "AGENTS.md",
+    "runner-config.yml",
+    "old"
+  ],
+  "bootstrapWritablePaths": [
+    ".ai-context/PRODUCT_VISION.md",
+    ".ai-context/PRD.md",
+    ".ai-context/project-config.json"
+  ]
+}

@@ -1,0 +1,118 @@
+name: Gardener-Agent (Weekly Code Hygiene & Performance Optimizer)
+
+on:
+  schedule:
+    # Runs once a week: every Sunday at 03:00 UTC
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    # Allows manual 1-click execution in GitHub Actions UI
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  weekly-gardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Repository (Full History for 7-Day Merge Detection)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check for New Merges in Last 7 Days
+        id: merge_check
+        run: |
+          LAST_GARDENER=$(git log -n 1 --grep="chore(gardener)" --format="%H" || true)
+          if [ -n "$LAST_GARDENER" ]; then
+            NEW_COMMITS=$(git log "${LAST_GARDENER}..HEAD" --since="7 days ago" --format="%s" | grep -v -E "^(chore\(gardener\)|docs\(librarian\)):" | wc -l)
+          else
+            NEW_COMMITS=$(git log --since="7 days ago" --format="%s" | grep -v -E "^(chore\(gardener\)|docs\(librarian\)):" | wc -l)
+          fi
+          echo "Detected $NEW_COMMITS meaningful commit(s)/merge(s) since last Gardener run."
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$NEW_COMMITS" -gt 0 ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare Isolated Gardener Refactoring Branch
+        if: steps.merge_check.outputs.should_run == 'true'
+        run: |
+          git config user.name "AI Gardener-Agent"
+          git config user.email "gardener-bot@users.noreply.github.com"
+          BRANCH="refactor/gardener-weekly-${{ github.run_number }}"
+          git checkout -B "$BRANCH"
+
+      - name: Run Gardener-Agent (Dead-Code Removal, Anti-Spaghetti & Loop Optimization)
+        if: steps.merge_check.outputs.should_run == 'true'
+        env:
+          LLM_PROVIDER: ${{ vars.GARDENER_LLM_PROVIDER || vars.DEV_LLM_PROVIDER || 'gemini' }}
+          LLM_MODEL: ${{ vars.GARDENER_LLM_MODEL || vars.DEV_LLM_MODEL || 'gemini-2.5-pro' }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          VIBE_GIT_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          FORCE_GARDENER: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+        run: node .ai-context/agents/gardener-agent.js
+
+      - name: Run Template & Security Self-Tests (Pre-Commit Gate)
+        if: steps.merge_check.outputs.should_run == 'true'
+        run: node .ai-context/lib/self-test.js
+
+      - name: Stage & Commit Verified Refactoring Locally
+        if: steps.merge_check.outputs.should_run == 'true'
+        run: |
+          git add .
+          git commit -m "chore(gardener): weekly dead-code cleanup and loop performance optimization" || echo "Codebase already clean; no changes to commit"
+
+      - name: Pre-PR Security Gate 1 - Gitleaks Secret Scanner
+        if: steps.merge_check.outputs.should_run == 'true'
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Pre-PR Security Gate 2 - Semgrep SAST Code Scan
+        if: steps.merge_check.outputs.should_run == 'true'
+        run: pipx run semgrep scan --config p/default --error
+
+      - name: Pre-PR Security Gate 3 - Trivy Vulnerability, Secret & Misconfig Scanner
+        if: steps.merge_check.outputs.should_run == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          scanners: 'vuln,secret,misconfig'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Branch & Open Verified Refactoring Pull Request (ONLY If All Checks Pass)
+        if: steps.merge_check.outputs.should_run == 'true' && success()
+        env:
+          LLM_PROVIDER: ${{ vars.GARDENER_LLM_PROVIDER || vars.DEV_LLM_PROVIDER || 'gemini' }}
+          LLM_MODEL: ${{ vars.GARDENER_LLM_MODEL || vars.DEV_LLM_MODEL || 'gemini-2.5-pro' }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          VIBE_GIT_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          ISSUE_TITLE: "Weekly Gardener Cleanup & Loop Performance Optimization"
+          BRANCH_NAME: refactor/gardener-weekly-${{ github.run_number }}
+        run: |
+          if [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ]; then
+            git push -u origin "refactor/gardener-weekly-${{ github.run_number }}" --force-with-lease
+            node .ai-context/lib/create-verified-pr.js
+          else
+            echo "Codebase is already optimal (no commits ahead of origin/main); skipping PR creation."
+          fi

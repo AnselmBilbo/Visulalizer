@@ -1,0 +1,14 @@
+// CATALOG INDEX
+// Note: In production, this file is auto-updated by the Documentation-Agent (Librarian).
+// Format: - .ai-context/docs/filename.md: Short 1-sentence description (exports: ...)
+
+[UI]:
+[State]:
+[API]:
+[Data]:
+[Services]:
+[Audio]:
+[Graphics]:
+[Utils]:
+[Config]:
+- .ai-context/docs/README.md: Explains the documentation structure and DRY catalog workflow.

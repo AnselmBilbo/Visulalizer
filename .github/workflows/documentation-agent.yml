@@ -1,0 +1,48 @@
+name: Documentation Agent (Librarian)
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  update-docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && !startsWith(github.event.head_commit.message, 'docs(librarian):')"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Documentation Agent via Cloud API
+        env:
+          LLM_PROVIDER: ${{ vars.DEV_LLM_PROVIDER || 'gemini' }}
+          LLM_MODEL: ${{ vars.DEV_LLM_MODEL || 'gemini-2.5-pro' }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          REPO_NAME: ${{ github.repository }}
+        run: node .ai-context/agents/documentation-agent.js
+
+      - name: Verify Protected Files & Push Catalog Update (With Loop Prevention)
+        run: |
+          node .ai-context/lib/self-test.js
+          git config user.name "AI Documentation Agent"
+          git config user.email "docs-bot@users.noreply.github.com"
+          if ! git diff --quiet .ai-context/catalog-index.txt .ai-context/docs/; then
+            git add .ai-context/catalog-index.txt .ai-context/docs/
+            git commit -m "docs(librarian): consolidate catalog-index.txt and documentation [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "Catalog index is already clean and up to date."
+          fi

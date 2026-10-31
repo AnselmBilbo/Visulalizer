@@ -1,0 +1,115 @@
+name: Dev-Agent (Coder & Pre-PR Verification Gate)
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  develop-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: >-
+      (
+        github.event.label.name == 'Ready for Dev' ||
+        github.event.label.name == 'ready-for-dev' ||
+        github.event.label.name == 'Needs Fix' ||
+        github.event.label.name == 'needs-fix' ||
+        github.event.label.name == 'Chatbot' ||
+        github.event.label.name == 'Remote Antigravity' ||
+        github.event.label.name == 'dev-chatbot' ||
+        github.event.label.name == 'dev-agent-antigravity'
+      ) &&
+      (
+        contains(join(github.event.issue.labels.*.name, ','), 'Ready for Dev') ||
+        contains(join(github.event.issue.labels.*.name, ','), 'ready-for-dev') ||
+        contains(join(github.event.issue.labels.*.name, ','), 'Needs Fix') ||
+        contains(join(github.event.issue.labels.*.name, ','), 'needs-fix')
+      ) &&
+      !contains(join(github.event.issue.labels.*.name, ','), 'Lokal IDE/Agent')
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Prepare Isolated Feature Branch
+        run: |
+          git config user.name "AI Dev-Agent"
+          git config user.email "dev-bot@users.noreply.github.com"
+          BRANCH="feature/issue-${{ github.event.issue.number }}"
+          git checkout -B "$BRANCH"
+
+      - name: Run Dev-Agent (TDD Loop + Internal Tests + Reviewer DRY Check)
+        env:
+          LLM_PROVIDER: ${{ vars.DEV_LLM_PROVIDER || 'gemini' }}
+          LLM_MODEL: ${{ vars.DEV_LLM_MODEL || 'gemini-2.5-pro' }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          VIBE_GIT_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          AGENT_MODE: ${{ github.event.label.name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+        run: node .ai-context/agents/dev-agent.js
+
+      - name: Run Template & Security Self-Tests (Pre-Commit Gate)
+        run: node .ai-context/lib/self-test.js
+
+      - name: Stage & Commit Verified Changes Locally
+        run: |
+          git add .
+          git commit -m "feat(issue-${{ github.event.issue.number }}): implement TDD contract for #${{ github.event.issue.number }}" || echo "No new changes to commit"
+
+      - name: Pre-PR Security Gate 1 - Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Pre-PR Security Gate 2 - Semgrep SAST Code Scan
+        run: pipx run semgrep scan --config p/default --error
+
+      - name: Pre-PR Security Gate 3 - Trivy Vulnerability, Secret & Misconfig Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          scanners: 'vuln,secret,misconfig'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Branch & Create Pull Request (ONLY After All Tests & Security Checks Pass)
+        if: success()
+        env:
+          LLM_PROVIDER: ${{ vars.DEV_LLM_PROVIDER || 'gemini' }}
+          LLM_MODEL: ${{ vars.DEV_LLM_MODEL || 'gemini-2.5-pro' }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          VIBE_GIT_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          BRANCH_NAME: feature/issue-${{ github.event.issue.number }}
+        run: |
+          if [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ]; then
+            git push -u origin "feature/issue-${{ github.event.issue.number }}" --force-with-lease
+            node .ai-context/lib/create-verified-pr.js
+          else
+            echo "No commits ahead of origin/main; skipping PR creation."
+          fi

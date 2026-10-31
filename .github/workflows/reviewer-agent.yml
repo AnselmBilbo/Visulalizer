@@ -1,0 +1,38 @@
+name: PR Reviewer (Architect)
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Reviewer Agent via Cloud API
+        env:
+          LLM_PROVIDER: ${{ vars.DEV_LLM_PROVIDER || 'gemini' }}
+          LLM_MODEL: ${{ vars.DEV_LLM_MODEL || 'gemini-2.5-pro' }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          VIBE_GIT_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node .ai-context/agents/reviewer-agent.js

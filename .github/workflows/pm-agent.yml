@@ -1,0 +1,66 @@
+name: PM-Agent (Issue Triage & TDD Contract)
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  analyze-issue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      !contains(join(github.event.issue.labels.*.name, ','), 'Admin Override') &&
+      !contains(join(github.event.issue.labels.*.name, ','), 'admin-override') &&
+      (
+        github.event_name == 'issues' ||
+        (
+          github.event.issue.pull_request == null &&
+          !startsWith(github.event.comment.body, '### 🤖 PM-Agent') &&
+          !startsWith(github.event.comment.body, '### ❓ Dev-Agent') &&
+          !startsWith(github.event.comment.body, '### 🎉 Pull Request') &&
+          !startsWith(github.event.comment.body, '### 🚨')
+        )
+      )
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run PM-Agent via Cloud API
+        env:
+          LLM_PROVIDER: ${{ vars.PM_LLM_PROVIDER || 'gemini' }}
+          LLM_MODEL: ${{ vars.PM_LLM_MODEL || 'gemini-2.5-pro' }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          VIBE_GIT_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.VIBE_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          ISSUE_ID: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+        run: node .ai-context/agents/pm-agent.js
+
+      - name: Commit Initialized Project Vision & PRD (If Bootstrapped)
+        run: |
+          git config user.name "AI PM-Agent"
+          git config user.email "pm-bot@users.noreply.github.com"
+          if ! git diff --quiet .ai-context/PRODUCT_VISION.md .ai-context/PRD.md .ai-context/project-config.json; then
+            git add .ai-context/PRODUCT_VISION.md .ai-context/PRD.md .ai-context/project-config.json
+            git commit -m "chore(bootstrap): initialize project vision, PRD and config from Issue #${{ github.event.issue.number }} [skip ci]"
+            git push origin HEAD:main
+          fi

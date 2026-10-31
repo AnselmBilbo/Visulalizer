@@ -1,0 +1,35 @@
+# Local Runner & Infrastructure Secrets (NEVER COMMIT)
+old/
+runner-config.yml
+.runner
+*.pem
+*.key
+*.secret
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Dependencies & Build Artifacts (Multi-Stack Template)
+node_modules/
+dist/
+build/
+out/
+coverage/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+target/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
